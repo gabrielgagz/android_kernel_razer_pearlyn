@@ -2303,10 +2303,10 @@ add_detailed_modes(struct drm_connector *connector, struct edid *edid,
 #define EDID_CEA_YCRCB422	(1 << 4)
 #define EDID_CEA_VCDB_QS	(1 << 6)
 
-/**
+/*
  * Search EDID for CEA extension block.
  */
-u8 *drm_find_cea_extension(struct edid *edid)
+static u8 *drm_find_cea_extension(struct edid *edid)
 {
 	u8 *edid_ext = NULL;
 	int i;
@@ -2327,7 +2327,6 @@ u8 *drm_find_cea_extension(struct edid *edid)
 
 	return edid_ext;
 }
-EXPORT_SYMBOL(drm_find_cea_extension);
 
 /**
  * drm_match_cea_mode - look for a CEA mode matching given mode
