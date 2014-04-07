@@ -15,6 +15,9 @@
 
 #include "zcomp.h"
 #include "zcomp_lzo.h"
+#ifdef CONFIG_ZRAM_LZ4_COMPRESS
+#include "zcomp_lz4.h"
+#endif
 
 /*
  * single zcomp_strm backend
@@ -39,11 +42,23 @@ struct zcomp_strm_multi {
 	wait_queue_head_t strm_wait;
 };
 
+static struct zcomp_backend *backends[] = {
+	&zcomp_lzo,
+#ifdef CONFIG_ZRAM_LZ4_COMPRESS
+	&zcomp_lz4,
+#endif
+	NULL
+};
+
 static struct zcomp_backend *find_backend(const char *compress)
 {
-	if (strncmp(compress, "lzo", 3) == 0)
-		return &zcomp_lzo;
-	return NULL;
+	int i = 0;
+	while (backends[i]) {
+		if (sysfs_streq(compress, backends[i]->name))
+			break;
+		i++;
+	}
+	return backends[i];
 }
 
 static void zcomp_strm_free(struct zcomp *comp, struct zcomp_strm *zstrm)
@@ -136,6 +151,29 @@ static void zcomp_strm_multi_release(struct zcomp *comp, struct zcomp_strm *zstr
 	zcomp_strm_free(comp, zstrm);
 }
 
+/* change max_strm limit */
+static int zcomp_strm_multi_set_max_streams(struct zcomp *comp, int num_strm)
+{
+	struct zcomp_strm_multi *zs = comp->stream;
+	struct zcomp_strm *zstrm;
+
+	spin_lock(&zs->strm_lock);
+	zs->max_strm = num_strm;
+	/*
+	 * if user has lowered the limit and there are idle streams,
+	 * immediately free as much streams (and memory) as we can.
+	 */
+	while (zs->avail_strm > num_strm && !list_empty(&zs->idle_strm)) {
+		zstrm = list_entry(zs->idle_strm.next,
+				struct zcomp_strm, list);
+		list_del(&zstrm->list);
+		zcomp_strm_free(comp, zstrm);
+		zs->avail_strm--;
+	}
+	spin_unlock(&zs->strm_lock);
+	return 0;
+}
+
 static void zcomp_strm_multi_destroy(struct zcomp *comp)
 {
 	struct zcomp_strm_multi *zs = comp->stream;
@@ -158,6 +196,7 @@ static int zcomp_strm_multi_create(struct zcomp *comp, int max_strm)
 	comp->destroy = zcomp_strm_multi_destroy;
 	comp->strm_find = zcomp_strm_multi_find;
 	comp->strm_release = zcomp_strm_multi_release;
+	comp->set_max_streams = zcomp_strm_multi_set_max_streams;
 	zs = kmalloc(sizeof(struct zcomp_strm_multi), GFP_KERNEL);
 	if (!zs)
 		return -ENOMEM;
@@ -192,6 +231,12 @@ static void zcomp_strm_single_release(struct zcomp *comp,
 	mutex_unlock(&zs->strm_lock);
 }
 
+static int zcomp_strm_single_set_max_streams(struct zcomp *comp, int num_strm)
+{
+	/* zcomp_strm_single support only max_comp_streams == 1 */
+	return -ENOTSUPP;
+}
+
 static void zcomp_strm_single_destroy(struct zcomp *comp)
 {
 	struct zcomp_strm_single *zs = comp->stream;
@@ -206,6 +251,7 @@ static int zcomp_strm_single_create(struct zcomp *comp)
 	comp->destroy = zcomp_strm_single_destroy;
 	comp->strm_find = zcomp_strm_single_find;
 	comp->strm_release = zcomp_strm_single_release;
+	comp->set_max_streams = zcomp_strm_single_set_max_streams;
 	zs = kmalloc(sizeof(struct zcomp_strm_single), GFP_KERNEL);
 	if (!zs)
 		return -ENOMEM;
@@ -218,6 +264,28 @@ static int zcomp_strm_single_create(struct zcomp *comp)
 		return -ENOMEM;
 	}
 	return 0;
+}
+
+/* show available compressors */
+ssize_t zcomp_available_show(const char *comp, char *buf)
+{
+	ssize_t sz = 0;
+	int i = 0;
+
+	while (backends[i]) {
+		if (sysfs_streq(comp, backends[i]->name))
+			sz += sprintf(buf + sz, "[%s] ", backends[i]->name);
+		else
+			sz += sprintf(buf + sz, "%s ", backends[i]->name);
+		i++;
+	}
+	sz += sprintf(buf + sz, "\n");
+	return sz;
+}
+
+int zcomp_set_max_streams(struct zcomp *comp, int num_strm)
+{
+	return comp->set_max_streams(comp, num_strm);
 }
 
 struct zcomp_strm *zcomp_strm_find(struct zcomp *comp)
