@@ -747,7 +747,8 @@ int mdss_mdp_overlay_pipe_setup(struct msm_fb_data_type *mfd,
 	}
 
 	req->priority = pipe->priority;
-	if (!pipe->dirty && !memcmp(req, &pipe->req_data, sizeof(*req))) {
+
+	if (!memcmp(req, &pipe->req_data, sizeof(*req))) {
 		pr_debug("skipping pipe_reconfiguration\n");
 		goto skip_reconfigure;
 	}
@@ -930,7 +931,6 @@ int mdss_mdp_overlay_pipe_setup(struct msm_fb_data_type *mfd,
 	req->vert_deci = pipe->vert_deci;
 
 	pipe->req_data = *req;
-	pipe->dirty = false;
 
 	pipe->params_changed++;
 skip_reconfigure:
