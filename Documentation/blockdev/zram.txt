@@ -43,7 +43,21 @@ implemented as a special case by lock overhead issue and does not support
 dynamic max_comp_streams. Only multi stream backend supports dynamic
 max_comp_streams adjustment.
 
-3) Set Disksize
+3) Select compression algorithm
+	Using comp_algorithm device attribute one can see available and
+	currently selected (shown in square brackets) compression algortithms,
+	change selected compression algorithm (once the device is initialised
+	there is no way to change compression algorithm).
+
+	Examples:
+	#show supported compression algorithms
+	cat /sys/block/zram0/comp_algorithm
+	lzo [lz4]
+
+	#select lzo compression algorithm
+	echo lzo > /sys/block/zram0/comp_algorithm
+
+4) Set Disksize
         Set disk size by writing the value to sysfs node 'disksize'.
         The value can be either in bytes or you can use mem suffixes.
         Examples:
@@ -60,32 +74,49 @@ There is little point creating a zram of greater than twice the size of memory
 since we expect a 2:1 compression ratio. Note that zram uses about 0.1% of the
 size of the disk when not in use so a huge zram is wasteful.
 
-4) Activate:
+5) Set memory limit: Optional
+	Set memory limit by writing the value to sysfs node 'mem_limit'.
+	The value can be either in bytes or you can use mem suffixes.
+	In addition, you could change the value in runtime.
+	Examples:
+	    # limit /dev/zram0 with 50MB memory
+	    echo $((50*1024*1024)) > /sys/block/zram0/mem_limit
+
+	    # Using mem suffixes
+	    echo 256K > /sys/block/zram0/mem_limit
+	    echo 512M > /sys/block/zram0/mem_limit
+	    echo 1G > /sys/block/zram0/mem_limit
+
+	    # To disable memory limit
+	    echo 0 > /sys/block/zram0/mem_limit
+
+6) Activate:
 	mkswap /dev/zram0
 	swapon /dev/zram0
 
 	mkfs.ext4 /dev/zram1
 	mount /dev/zram1 /tmp
 
-5) Stats:
+7) Stats:
 	Per-device statistics are exported as various nodes under
 	/sys/block/zram<id>/
 		disksize
 		num_reads
 		num_writes
+		failed_reads
+		failed_writes
 		invalid_io
 		notify_free
-		discard
 		zero_pages
 		orig_data_size
 		compr_data_size
 		mem_used_total
 
-6) Deactivate:
+8) Deactivate:
 	swapoff /dev/zram0
 	umount /dev/zram1
 
-7) Reset:
+9) Reset:
 	Write any positive value to 'reset' sysfs node
 	echo 1 > /sys/block/zram0/reset
 	echo 1 > /sys/block/zram1/reset
