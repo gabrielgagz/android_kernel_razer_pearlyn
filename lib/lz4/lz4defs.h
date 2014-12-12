@@ -21,6 +21,7 @@
 /*
  * Architecture-specific macros
  */
+#define ARM_EFFICIENT_UNALIGNED_ACCESS
 #define BYTE	u8
 #if defined(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS)		\
 	|| defined(CONFIG_ARM) && __LINUX_ARM_ARCH__ >= 6	\
