@@ -1241,7 +1241,7 @@ static u32 mdss_mdp_res_init(struct mdss_data_type *mdata)
 
 	mdata->iclient = msm_ion_client_create(-1, mdata->pdev->name);
 	if (IS_ERR_OR_NULL(mdata->iclient)) {
-		pr_err("msm_ion_client_create() return error (%p)\n",
+		pr_err("msm_ion_client_create() return error (%pK)\n",
 				mdata->iclient);
 		mdata->iclient = NULL;
 	}
@@ -1515,9 +1515,8 @@ static int mdss_mdp_probe(struct platform_device *pdev)
 		rc = -ENOMEM;
 		goto probe_done;
 	}
-	pr_info("MDSS HW Base phy_Address=0x%x virt=0x%x\n",
-		(int) (unsigned long) res->start,
-		(int) (unsigned long) mdata->mdss_base);
+	pr_info("MDSS HW Base phy_Address=0x%lx virt=%pK\n",
+		(unsigned long) res->start, mdata->mdss_base);
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "vbif_phys");
 	if (!res) {
@@ -1533,9 +1532,8 @@ static int mdss_mdp_probe(struct platform_device *pdev)
 		rc = -ENOMEM;
 		goto probe_done;
 	}
-	pr_info("MDSS VBIF HW Base phy_Address=0x%x virt=0x%x\n",
-		(int) (unsigned long) res->start,
-		(int) (unsigned long) mdata->vbif_base);
+	pr_info("MDSS VBIF HW Base phy_Address=0x%lx virt=%pK\n",
+		(unsigned long) res->start, mdata->vbif_base);
 
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res) {
