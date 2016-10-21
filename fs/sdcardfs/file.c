@@ -358,7 +358,6 @@ out:
 	return err;
 }
 
-
 static struct file *sdcardfs_get_lower_file(struct file *f)
 {
 	return sdcardfs_lower_file(f);
