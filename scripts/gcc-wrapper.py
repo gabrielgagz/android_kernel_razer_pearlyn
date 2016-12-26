@@ -49,6 +49,7 @@ allowed_warnings = set([
     "vfpmodule.c:221",
     "vfpmodule.c:512",
     "vfpmodule.c:651",
+    "ene_ub6250.c:2125",
  ])
 
 # Capture the name of the object file, can find it.
