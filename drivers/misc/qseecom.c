@@ -73,6 +73,7 @@
 
 #define QSEECOM_SEND_CMD_CRYPTO_TIMEOUT	2000
 #define QSEECOM_LOAD_APP_CRYPTO_TIMEOUT	2000
+#define TWO 2
 
 enum qseecom_clk_definitions {
 	CLK_DFAB = 0,
@@ -1573,7 +1574,7 @@ static int __validate_send_cmd_inputs(struct qseecom_dev_handle *data,
 	}
 	return 0;
 }
-
+ 
 static int __qseecom_send_cmd(struct qseecom_dev_handle *data,
 				struct qseecom_send_cmd_req *req)
 {
@@ -1995,7 +1996,7 @@ static bool __qseecom_is_fw_image_valid(const struct firmware *fw_entry)
 	return true;
 }
 
-static int __qseecom_get_fw_size(char *appname, uint32_t *fw_size)
+static int __qseecom_get_fw_size(const char *appname, uint32_t *fw_size)
 {
 	int ret = -1;
 	int i = 0, rc = 0;
@@ -2021,14 +2022,21 @@ static int __qseecom_get_fw_size(char *appname, uint32_t *fw_size)
 	ehdr = (struct elf32_hdr *)fw_entry->data;
 	num_images = ehdr->e_phnum;
 	release_firmware(fw_entry);
+	fw_entry = NULL;
 	for (i = 0; i < num_images; i++, phdr++) {
 		memset(fw_name, 0, sizeof(fw_name));
 		snprintf(fw_name, ARRAY_SIZE(fw_name), "%s.b%02d", appname, i);
 		ret = request_firmware(&fw_entry, fw_name, qseecom.pdev);
 		if (ret)
 			goto err;
+		if (*fw_size > U32_MAX - fw_entry->size) {
+			pr_err("QSEE %s app file size overflow\n", appname);
+			ret = -EINVAL;
+			goto err;
+		}
 		*fw_size += fw_entry->size;
 		release_firmware(fw_entry);
+		fw_entry = NULL;
 	}
 	return ret;
 err:
@@ -2038,8 +2046,9 @@ err:
 	return ret;
 }
 
-static int __qseecom_get_fw_data(char *appname, u8 *img_data,
-					struct qseecom_load_app_ireq *load_req)
+static int __qseecom_get_fw_data(const char *appname, u8 *img_data,
+				uint32_t fw_size,
+				struct qseecom_load_app_ireq *load_req)
 {
 	int ret = -1;
 	int i = 0, rc = 0;
@@ -2056,12 +2065,19 @@ static int __qseecom_get_fw_data(char *appname, u8 *img_data,
 		goto err;
 	}
 	load_req->img_len = fw_entry->size;
+	if (load_req->img_len > fw_size) {
+		pr_err("app %s size %zu is larger than buf size %u\n",
+			appname, fw_entry->size, fw_size);
+		ret = -EINVAL;
+		goto err;
+	}
 	memcpy(img_data_ptr, fw_entry->data, fw_entry->size);
 	img_data_ptr = img_data_ptr + fw_entry->size;
 	load_req->mdt_len = fw_entry->size; /*Get MDT LEN*/
 	ehdr = (struct elf32_hdr *)fw_entry->data;
 	num_images = ehdr->e_phnum;
 	release_firmware(fw_entry);
+	fw_entry = NULL;
 	for (i = 0; i < num_images; i++) {
 		snprintf(fw_name, ARRAY_SIZE(fw_name), "%s.b%02d", appname, i);
 		ret = request_firmware(&fw_entry, fw_name,  qseecom.pdev);
@@ -2069,16 +2085,75 @@ static int __qseecom_get_fw_data(char *appname, u8 *img_data,
 			pr_err("Failed to locate blob %s\n", fw_name);
 			goto err;
 		}
+		if ((fw_entry->size > U32_MAX - load_req->img_len) ||
+			(fw_entry->size + load_req->img_len > fw_size)) {
+			pr_err("Invalid file size for %s\n", fw_name);
+			ret = -EINVAL;
+			goto err;
+		}
 		memcpy(img_data_ptr, fw_entry->data, fw_entry->size);
 		img_data_ptr = img_data_ptr + fw_entry->size;
 		load_req->img_len += fw_entry->size;
 		release_firmware(fw_entry);
+		fw_entry = NULL;
 	}
 	load_req->phy_addr = virt_to_phys(img_data);
 	return ret;
 err:
 	release_firmware(fw_entry);
 	return ret;
+}
+
+static int __qseecom_allocate_img_data(struct ion_handle **pihandle,
+			u8 **data, uint32_t fw_size, ion_phys_addr_t *paddr)
+{
+	size_t len = 0;
+	int ret = 0;
+	ion_phys_addr_t pa;
+	struct ion_handle *ihandle = NULL;
+	u8 *img_data = NULL;
+
+	ihandle = ion_alloc(qseecom.ion_clnt, fw_size,
+			SZ_4K, ION_HEAP(ION_QSECOM_HEAP_ID), 0);
+
+	if (IS_ERR_OR_NULL(ihandle)) {
+		pr_err("ION alloc failed\n");
+		return -ENOMEM;
+	}
+	img_data = (u8 *)ion_map_kernel(qseecom.ion_clnt,
+					ihandle);
+
+	if (IS_ERR_OR_NULL(img_data)) {
+		pr_err("ION memory mapping for image loading failed\n");
+		ret = -ENOMEM;
+		goto exit_ion_free;
+	}
+	/* Get the physical address of the ION BUF */
+	ret = ion_phys(qseecom.ion_clnt, ihandle, &pa, &len);
+	if (ret) {
+		pr_err("physical memory retrieval failure\n");
+		ret = -EIO;
+		goto exit_ion_unmap_kernel;
+	}
+
+	*pihandle = ihandle;
+	*data = img_data;
+	*paddr = pa;
+	return ret;
+
+exit_ion_unmap_kernel:
+	ion_unmap_kernel(qseecom.ion_clnt, ihandle);
+exit_ion_free:
+	ion_free(qseecom.ion_clnt, ihandle);
+	ihandle = NULL;
+	return ret;
+}
+
+static void __qseecom_free_img_data(struct ion_handle **ihandle)
+{
+	ion_unmap_kernel(qseecom.ion_clnt, *ihandle);
+	ion_free(qseecom.ion_clnt, *ihandle);
+	*ihandle = NULL;
 }
 
 static int __qseecom_load_fw(struct qseecom_dev_handle *data, char *appname)
@@ -2088,22 +2163,24 @@ static int __qseecom_load_fw(struct qseecom_dev_handle *data, char *appname)
 	struct qseecom_load_app_ireq load_req = {0, 0, 0, 0};
 	struct qseecom_command_scm_resp resp;
 	u8 *img_data = NULL;
+	ion_phys_addr_t pa = 0;
+	struct ion_handle *ihandle = NULL;
 
 	if (__qseecom_get_fw_size(appname, &fw_size))
 		return -EIO;
 
-	img_data = kzalloc(fw_size, GFP_KERNEL);
-	if (!img_data) {
-		pr_err("Failied to allocate memory for copying image data\n");
-		return -ENOMEM;
-	}
-	ret = __qseecom_get_fw_data(appname, img_data, &load_req);
+	ret = __qseecom_allocate_img_data(&ihandle, &img_data, fw_size, &pa);
+	if (ret)
+		return ret;
+
+	ret = __qseecom_get_fw_data(appname, img_data, fw_size, &load_req);
 	if (ret) {
-		kzfree(img_data);
-		return -EIO;
+		ret = -EIO;
+		goto exit_free_img_data;
 	}
 
 	/* Populate the remaining parameters */
+	load_req.phy_addr = (uint32_t)pa;
 	load_req.qsee_cmd_id = QSEOS_APP_START_COMMAND;
 	memcpy(load_req.app_name, appname, MAX_APP_NAME_SIZE);
 
@@ -2112,18 +2189,19 @@ static int __qseecom_load_fw(struct qseecom_dev_handle *data, char *appname)
 		ret = __qseecom_register_bus_bandwidth_needs(data, MEDIUM);
 		mutex_unlock(&qsee_bw_mutex);
 		if (ret) {
-			kzfree(img_data);
-			return ret;
+			ret = -EIO;
+			goto exit_free_img_data;
 		}
 	}
 
 	ret = __qseecom_enable_clk_scale_up(data);
 	if (ret) {
 		ret = -EIO;
-		goto loadfw_err;
+		goto exit_unregister_bus_bw_need;
 	}
 
 	__cpuc_flush_dcache_area((void *)img_data, fw_size);
+
 	/* SCM_CALL to load the image */
 	ret = scm_call(SCM_SVC_TZSCHEDULER, 1,	&load_req,
 			sizeof(struct qseecom_load_app_ireq),
@@ -2131,7 +2209,7 @@ static int __qseecom_load_fw(struct qseecom_dev_handle *data, char *appname)
 	if (ret) {
 		pr_err("scm_call to load failed : ret %d\n", ret);
 		ret = -EIO;
-		goto loadfw_err;
+		goto exit_disable_clk_vote;
 	}
 
 	switch (resp.result) {
@@ -2154,59 +2232,45 @@ static int __qseecom_load_fw(struct qseecom_dev_handle *data, char *appname)
 		break;
 	}
 
-loadfw_err:
-	kzfree(img_data);
+exit_disable_clk_vote:
 	__qseecom_disable_clk_scale_down(data);
+
+exit_unregister_bus_bw_need:
 	if (qseecom.support_bus_scaling) {
 		mutex_lock(&qsee_bw_mutex);
 		qseecom_unregister_bus_bandwidth_needs(data);
 		mutex_unlock(&qsee_bw_mutex);
 	}
+
+exit_free_img_data:
+	__qseecom_free_img_data(&ihandle);
 	return ret;
 }
 
 static int qseecom_load_commonlib_image(struct qseecom_dev_handle *data)
 {
 	int ret = 0;
-	int len = 0;
 	uint32_t fw_size = 0;
 	struct qseecom_load_app_ireq load_req = {0, 0, 0, 0};
 	struct qseecom_command_scm_resp resp;
 	u8 *img_data = NULL;
-	ion_phys_addr_t pa;
+	ion_phys_addr_t pa = 0;
 
 	if (__qseecom_get_fw_size("cmnlib", &fw_size))
 		return -EIO;
 
-	qseecom.cmnlib_ion_handle = ion_alloc(qseecom.ion_clnt, fw_size,
-					SZ_4K, ION_HEAP(ION_QSECOM_HEAP_ID), 0);
-	if (IS_ERR_OR_NULL(qseecom.cmnlib_ion_handle)) {
-		pr_err("ION alloc failed\n");
-		return -ENOMEM;
+	ret = __qseecom_allocate_img_data(&qseecom.cmnlib_ion_handle,
+						&img_data, fw_size, &pa);
+	if (ret)
+		return -EIO;
+
+	ret = __qseecom_get_fw_data("cmnlib", img_data, fw_size, &load_req);
+	if (ret) {
+		ret = -EIO;
+		goto exit_free_img_data;
 	}
 
-	img_data = (u8 *)ion_map_kernel(qseecom.ion_clnt,
-					qseecom.cmnlib_ion_handle);
-	if (IS_ERR_OR_NULL(img_data)) {
-		pr_err("ION memory mapping for cmnlib failed\n");
-		ret = -ENOMEM;
-		goto exit_ion_free;
-	}
-	ret = __qseecom_get_fw_data("cmnlib", img_data, &load_req);
-	if (ret) {
-		ret = -EIO;
-		goto exit_ion_unmap_kernel;
-	}
-	/* Get the physical address of the ION BUF */
-	ret = ion_phys(qseecom.ion_clnt, qseecom.cmnlib_ion_handle,
-					&pa, &len);
-	load_req.phy_addr = (s32)pa;
-	if (ret) {
-		pr_err("physical memory retrieval failure\n");
-		ret = -EIO;
-		goto exit_ion_unmap_kernel;
-	}
-	/* Populate the remaining parameters */
+	load_req.phy_addr = (uint32_t)pa;
 	load_req.qsee_cmd_id = QSEOS_LOAD_SERV_IMAGE_COMMAND;
 
 	if (qseecom.support_bus_scaling) {
@@ -2215,7 +2279,7 @@ static int qseecom_load_commonlib_image(struct qseecom_dev_handle *data)
 		mutex_unlock(&qsee_bw_mutex);
 		if (ret) {
 			ret = -EIO;
-			goto exit_ion_unmap_kernel;
+			goto exit_free_img_data;
 		}
 	}
 
@@ -2274,12 +2338,8 @@ exit_unregister_bus_bw_need:
 		mutex_unlock(&qsee_bw_mutex);
 	}
 
-exit_ion_unmap_kernel:
-	ion_unmap_kernel(qseecom.ion_clnt, qseecom.cmnlib_ion_handle);
-
-exit_ion_free:
-	ion_free(qseecom.ion_clnt, qseecom.cmnlib_ion_handle);
-	qseecom.cmnlib_ion_handle = NULL;
+exit_free_img_data:
+	__qseecom_free_img_data(&qseecom.cmnlib_ion_handle);
 	return ret;
 }
 
@@ -2313,10 +2373,7 @@ static int qseecom_unload_commonlib_image(void)
 		}
 	}
 
-	ion_unmap_kernel(qseecom.ion_clnt, qseecom.cmnlib_ion_handle);
-	ion_free(qseecom.ion_clnt, qseecom.cmnlib_ion_handle);
-	qseecom.cmnlib_ion_handle = NULL;
-
+	__qseecom_free_img_data(&qseecom.cmnlib_ion_handle);
 	return ret;
 }
 
@@ -3082,8 +3139,14 @@ exit_disable_clock:
 
 exit_register_bus_bandwidth_needs:
 	if (qseecom.support_bus_scaling) {
+		int ret2;
 		mutex_lock(&qsee_bw_mutex);
-		ret = qseecom_unregister_bus_bandwidth_needs(data);
+		ret2 = qseecom_unregister_bus_bandwidth_needs(data);
+		pr_info("qseecom_unregister_bus_bandwidth_needs returned %d (ret=%d)\n", ret2, ret); // for debug
+		if (ret2) {
+			pr_err("qseecom_unregister_bus_bandwidth_needs returned %d\n", ret2);
+			ret = (ret || ret2);
+		}
 		mutex_unlock(&qsee_bw_mutex);
 	}
 
@@ -3814,6 +3877,13 @@ static long qseecom_ioctl(struct file *file, unsigned cmd,
 		/* Only one client allowed here at a time */
 		mutex_lock(&app_access_lock);
 		if (qseecom.support_bus_scaling) {
+			/* register bus bw in case the client doesn't do it */
+			if (!data->mode) {
+				mutex_lock(&qsee_bw_mutex);
+				__qseecom_register_bus_bandwidth_needs(
+								data, HIGH);
+				mutex_unlock(&qsee_bw_mutex);
+			}
 			if (!data->mode) {
 				mutex_lock(&qsee_bw_mutex);
 				__qseecom_register_bus_bandwidth_needs(
@@ -4763,8 +4833,7 @@ static int qseecom_suspend(struct platform_device *pdev, pm_message_t state)
 	mutex_lock(&qsee_bw_mutex);
 	mutex_lock(&clk_access_lock);
 
-	if (qseecom.cumulative_mode != INACTIVE &&
-		qseecom.current_mode != INACTIVE) {
+	if (qseecom.current_mode != INACTIVE) {
 		ret = msm_bus_scale_client_update_request(
 			qseecom.qsee_perf_client, INACTIVE);
 		if (ret)
