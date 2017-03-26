@@ -2249,17 +2249,11 @@ static void limTdlsUpdateHashNodeInfo(tpAniSirGlobal pMac, tDphHashNode *pStaDs,
     {
        pStaDs->mlmStaContext.vhtCapability = 1 ;
 
-       if ((psessionEntry->currentOperChannel <= SIR_11B_CHANNEL_END) &&
-            pMac->roam.configParam.enableVhtFor24GHz)
-        {
-            pStaDs->vhtSupportedChannelWidthSet = WNI_CFG_VHT_CHANNEL_WIDTH_20_40MHZ;
-            pStaDs->htSupportedChannelWidthSet = eHT_CHANNEL_WIDTH_20MHZ;
-        }
-        else
-        {
-            pStaDs->vhtSupportedChannelWidthSet =  WNI_CFG_VHT_CHANNEL_WIDTH_80MHZ;
-            pStaDs->htSupportedChannelWidthSet = eHT_CHANNEL_WIDTH_40MHZ ;
-        }
+        pStaDs->vhtSupportedChannelWidthSet =
+                    psessionEntry->vhtTxChannelWidthSet;
+
+        limLog(pMac, LOG1, FL("Vht supported channel width is set to = %d"),
+               pStaDs->vhtSupportedChannelWidthSet);
 
         pStaDs->vhtLdpcCapable = pVhtCaps->ldpcCodingCap;
         pStaDs->vhtBeamFormerCapable = 0;
