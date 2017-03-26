@@ -2208,7 +2208,21 @@ static void limTdlsUpdateHashNodeInfo(tpAniSirGlobal pMac, tDphHashNode *pStaDs,
     {
         pStaDs->mlmStaContext.htCapability = 1 ;
         pStaDs->htGreenfield = htCaps->greenField ;
-        pStaDs->htSupportedChannelWidthSet =  htCaps->supportedChannelWidthSet ;
+
+        limLog(pMac, LOG1,
+               FL("supportedChannelWidthSet %x htSupportedChannelWidthSet %x"),
+               htCaps->supportedChannelWidthSet,
+               psessionEntry->htSupportedChannelWidthSet);
+
+        pStaDs->htSupportedChannelWidthSet =
+                (htCaps->supportedChannelWidthSet <
+                  psessionEntry->htSupportedChannelWidthSet) ?
+                      htCaps->supportedChannelWidthSet :
+                      psessionEntry->htSupportedChannelWidthSet;
+
+        limLog(pMac, LOG1, FL("pStaDs->htSupportedChannelWidthSet %x"),
+               pStaDs->htSupportedChannelWidthSet);
+
         pStaDs->htMIMOPSState =             htCaps->mimoPowerSave ;
         pStaDs->htMaxAmsduLength =  htCaps->maximalAMSDUsize;
         pStaDs->htAMpduDensity =    htCaps->mpduDensity;
