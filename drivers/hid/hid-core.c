@@ -1751,6 +1751,8 @@ static const struct hid_device_id hid_have_special_driver[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_ORTEK, USB_DEVICE_ID_ORTEK_WKB2000) },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_PETALYNX, USB_DEVICE_ID_PETALYNX_MAXTER_REMOTE) },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_PRIMAX, USB_DEVICE_ID_PRIMAX_KEYBOARD) },
+	{ HID_USB_DEVICE(USB_VENDOR_ID_RAZER,  USB_DEVICE_ID_RAZER_DONGLE) },	
+	{ HID_USB_DEVICE(USB_VENDOR_ID_RAZER,  USB_DEVICE_ID_RAZER_SERVAL) },	
 #if IS_ENABLED(CONFIG_HID_ROCCAT)
 	{ HID_USB_DEVICE(USB_VENDOR_ID_ROCCAT, USB_DEVICE_ID_ROCCAT_ARVO) },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_ROCCAT, USB_DEVICE_ID_ROCCAT_ISKU) },
@@ -1914,7 +1916,7 @@ static int hid_bus_match(struct device *dev, struct device_driver *drv)
 
 static int hid_device_probe(struct device *dev)
 {
-	struct hid_driver *hdrv = container_of(dev->driver,
+  struct hid_driver *hdrv = container_of(dev->driver,
 			struct hid_driver, driver);
 	struct hid_device *hdev = container_of(dev, struct hid_device, dev);
 	const struct hid_device_id *id;
@@ -2382,8 +2384,10 @@ int hid_add_device(struct hid_device *hdev)
 	if (hid_ignore_special_drivers ||
 	    !hid_match_id(hdev, hid_have_special_driver)) {
 		ret = hid_scan_report(hdev);
-		if (ret)
+		if (ret) {
 			hid_warn(hdev, "bad device descriptor (%d)\n", ret);
+			printk("here 0\n");
+		}
 	}
 
 	/* XXX hack, any other cleaner solution after the driver core

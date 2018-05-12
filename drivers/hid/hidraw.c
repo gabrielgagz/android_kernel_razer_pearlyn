@@ -34,12 +34,14 @@
 #include <linux/hid.h>
 #include <linux/mutex.h>
 #include <linux/sched.h>
-
+#include <linux/input.h>
 #include <linux/hidraw.h>
 
+#include "hid-ids.h"
+
+struct class *hidraw_class = &input_class;
 static int hidraw_major;
 static struct cdev hidraw_cdev;
-static struct class *hidraw_class;
 static struct hidraw *hidraw_table[HIDRAW_MAX_DEVICES];
 static DEFINE_MUTEX(minors_lock);
 
@@ -477,7 +479,7 @@ int hidraw_report_event(struct hid_device *hid, u8 *data, int len)
 }
 EXPORT_SYMBOL_GPL(hidraw_report_event);
 
-int hidraw_connect(struct hid_device *hid)
+static int private_hidraw_connect(struct hid_device *hid)
 {
 	int minor, result;
 	struct hidraw *dev;
@@ -506,9 +508,9 @@ int hidraw_connect(struct hid_device *hid)
 		goto out;
 	}
 
+       
 	dev->dev = device_create(hidraw_class, &hid->dev, MKDEV(hidraw_major, minor),
 				 NULL, "%s%d", "hidraw", minor);
-
 	if (IS_ERR(dev->dev)) {
 		hidraw_table[minor] = NULL;
 		mutex_unlock(&minors_lock);
@@ -530,6 +532,82 @@ int hidraw_connect(struct hid_device *hid)
 out:
 	return result;
 
+}
+
+/* Only do razer mice for hidraw0 */
+int hidraw_connect(struct hid_device *hid)
+{
+	int rvalue = -EINVAL;
+
+	if (USB_VENDOR_ID_RAZER == hid->vendor) {
+		/* If its a razer mouse, block it for streaming */
+		switch(hid->product) {
+		case 0x0002:
+		case 0x0007:
+		case 0x0008:
+		case 0x0009:
+		case 0x000A:
+		case 0x000B:
+		case 0x000C:
+		case 0x000D:
+		case 0x000E:
+		case 0x000F:
+		case 0x0010:
+		case 0x0011:
+		case 0x0012:
+		case 0x0013:
+		case 0x0014:
+		case 0x0015:
+		case 0x0016:
+		case 0x0017:
+		case 0x0018:
+		case 0x0019:
+		case 0x001A:
+		case 0x001B:
+		case 0x001C:
+		case 0x001D:
+		case 0x001E:
+		case 0x001F:
+		case 0x0020:
+		case 0x0021:
+		case 0x0022:
+		case 0x0024:
+		case 0x0025:
+		case 0x0026:
+		case 0x0029:
+		case 0x002A:
+		case 0x002D:
+		case 0x002E:
+		case 0x002F:
+		case 0x0030:
+		case 0x0032:
+		case 0x0034:
+		case 0x0035:
+		case 0x0036:
+		case 0x0037:
+		case 0x0038:
+		case 0x0039:
+		case 0x003A:
+		case 0x003B:
+		case 0x003C:
+		case 0x003D:
+		case 0x0900:
+		case 0x0901:
+		case 0x90ff:
+		case 0x110d:
+			rvalue = private_hidraw_connect(hid);
+			break;
+		case 0x004a:
+			if (HID_TYPE_USBMOUSE == hid->type) {
+			      rvalue = private_hidraw_connect(hid);
+			} 
+			break;
+		default:
+			break;
+		}
+  }
+
+  return rvalue;
 }
 EXPORT_SYMBOL_GPL(hidraw_connect);
 
@@ -560,12 +638,6 @@ int __init hidraw_init(void)
 		goto out;
 	}
 
-	hidraw_class = class_create(THIS_MODULE, "hidraw");
-	if (IS_ERR(hidraw_class)) {
-		result = PTR_ERR(hidraw_class);
-		goto error_cdev;
-	}
-
         cdev_init(&hidraw_cdev, &hidraw_ops);
 	result = cdev_add(&hidraw_cdev, dev_id, HIDRAW_MAX_DEVICES);
 	if (result < 0)
@@ -576,8 +648,6 @@ out:
 	return result;
 
 error_class:
-	class_destroy(hidraw_class);
-error_cdev:
 	unregister_chrdev_region(dev_id, HIDRAW_MAX_DEVICES);
 	goto out;
 }
@@ -587,7 +657,6 @@ void hidraw_exit(void)
 	dev_t dev_id = MKDEV(hidraw_major, 0);
 
 	cdev_del(&hidraw_cdev);
-	class_destroy(hidraw_class);
 	unregister_chrdev_region(dev_id, HIDRAW_MAX_DEVICES);
 
 }

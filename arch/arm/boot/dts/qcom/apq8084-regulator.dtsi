@@ -24,6 +24,8 @@
 			qcom,vs-soft-start-strength = <0>;
 			qcom,hpm-enable = <1>;
 			qcom,auto-mode-enable = <0>;
+			proxy-supply = <&pma8084_mvs1>;
+			qcom,proxy-consumer-enable;
 			status = "okay";
 		};
 	};
@@ -107,6 +109,8 @@
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
 			qcom,init-voltage = <1800000>;
+			proxy-supply = <&pma8084_l12>;
+			qcom,proxy-consumer-enable;
 			status = "okay";
 		};
 	};
@@ -541,10 +545,8 @@
 	wlan_vreg: wlan_vreg {
 		compatible = "regulator-fixed";
 		regulator-name = "wlan_vreg";
-		startup-delay-us = <4000>;
-		enable-active-high;
-		gpio = <&pma8084_gpios 20 0>;
-		regulator-boot-on;
+		regulator-always-on;
+                status = "ok";
 	};
 
 	vbus_det_vreg: hdmi_vreg: hdmi_vreg {
@@ -552,7 +554,9 @@
 		regulator-name = "hdmi_vreg";
 		startup-delay-us = <400>;
 		enable-active-high;
-		gpio = <&pma8084_mpps 3 0>;
+		regulator-boot-on;
+	// 	this is not needed for pearlyn
+	//	gpio = <&pma8084_mpps 3 0>;
 	};
 
 	usb1_vreg: usb1_vreg {

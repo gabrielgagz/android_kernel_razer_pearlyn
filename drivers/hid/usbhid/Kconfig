@@ -24,6 +24,7 @@ config USB_HID
 comment "Input core support is needed for USB HID input layer or HIDBP support"
 	depends on USB_HID && INPUT=n
 
+
 config HID_PID
 	bool "PID device support"
 	help
@@ -43,6 +44,10 @@ config USB_HIDDEV
 	  event interface on /dev/usb/hiddevX (char 180:96 to 180:111).
 
 	  If unsure, say Y.
+
+config USB_RAZER_DONGLE
+	tristate "Razer Dongle HID Driver"
+	depends on HID
 
 menu "USB HID Boot Protocol drivers"
 	depends on USB!=n && USB_HID!=y && EXPERT

@@ -40,6 +40,9 @@ static DEFINE_IDA(input_ida);
 static LIST_HEAD(input_dev_list);
 static LIST_HEAD(input_handler_list);
 
+extern void razer_filter_controller(struct input_dev *pDev);
+
+
 /*
  * input_mutex protects access to both input_dev_list and input_handler_list.
  * This also causes input_[un]register_device and input_[un]register_handler
@@ -1574,6 +1577,8 @@ static int input_dev_uevent(struct device *device, struct kobj_uevent_env *env)
 {
 	struct input_dev *dev = to_input_dev(device);
 
+	/* razer_filter_controller(dev); */
+
 	INPUT_ADD_HOTPLUG_VAR("PRODUCT=%x/%x/%x/%x",
 				dev->id.bustype, dev->id.vendor,
 				dev->id.product, dev->id.version);
@@ -2032,6 +2037,7 @@ int input_register_device(struct input_dev *dev)
 	const char *path;
 	int error;
 
+	razer_filter_controller(dev);
 	if (dev->devres_managed) {
 		devres = devres_alloc(devm_input_device_unregister,
 				      sizeof(struct input_devres), GFP_KERNEL);

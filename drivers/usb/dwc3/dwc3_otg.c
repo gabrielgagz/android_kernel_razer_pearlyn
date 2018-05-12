@@ -179,15 +179,17 @@ static int dwc3_otg_start_host(struct usb_otg *otg, int on)
 
 	if (on) {
 		dev_dbg(otg->phy->dev, "%s: turn on host\n", __func__);
+	
 
 		dwc3_otg_notify_host_mode(otg, on);
+		dev_dbg(otg->phy->dev, "%s: turn on regulator\n", __func__);
 		ret = regulator_enable(dotg->vbus_otg);
 		if (ret) {
 			dev_err(otg->phy->dev, "unable to enable vbus_otg\n");
 			dwc3_otg_notify_host_mode(otg, 0);
 			return ret;
 		}
-
+        dev_dbg(otg->phy->dev, "%s: auto suspend\n", __func__);
 		/*
 		 * This should be revisited for more testing post-silicon.
 		 * In worst case we may need to disconnect the root hub
@@ -224,6 +226,8 @@ static int dwc3_otg_start_host(struct usb_otg *otg, int on)
 		/* re-init OTG EVTEN register as XHCI reset clears it */
 		if (ext_xceiv && !ext_xceiv->otg_capability)
 			dwc3_otg_reset(dotg);
+
+
 	} else {
 		dev_dbg(otg->phy->dev, "%s: turn off host\n", __func__);
 
@@ -505,10 +509,15 @@ static void dwc3_otg_notify_host_mode(struct usb_otg *otg, int host_mode)
 		return;
 	}
 
-	if (host_mode)
+	if (host_mode) {
+		dev_dbg(otg->phy->dev, "POWER_SUPPLY_SCOPE_SYSTEM\n");
 		power_supply_set_scope(dotg->psy, POWER_SUPPLY_SCOPE_SYSTEM);
+
+	}
 	else
 		power_supply_set_scope(dotg->psy, POWER_SUPPLY_SCOPE_DEVICE);
+
+	dev_dbg(otg->phy->dev, "set power mode for: %s\n", host_mode == 1 ? "Host" : "device");
 }
 
 static int dwc3_otg_set_power(struct usb_phy *phy, unsigned mA)

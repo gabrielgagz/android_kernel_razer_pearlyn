@@ -1101,9 +1101,89 @@ static const struct input_device_id evdev_ids[] = {
 
 MODULE_DEVICE_TABLE(input, evdev_ids);
 
+static bool evdev_match(struct input_handler *pHandler,
+			struct input_dev *pDev)
+{
+	bool rvalue = false;
+
+	if (0x1532 != pDev->id.vendor) {
+		/* Allow any mouse to work that isn't razer. */
+		rvalue = true;
+	} else {
+		/* If its a razer mouse, block it for streaming */
+		switch(pDev->id.product) {
+		case 0x0002:
+		case 0x0007:
+		case 0x0008:
+		case 0x0009:
+		case 0x000A:
+		case 0x000B:
+		case 0x000C:
+		case 0x000D:
+		case 0x000E:
+		case 0x000F:
+		case 0x0010:
+		case 0x0011:
+		case 0x0012:
+		case 0x0013:
+		case 0x0014:
+		case 0x0015:
+		case 0x0016:
+		case 0x0017:
+		case 0x0018:
+		case 0x0019:
+		case 0x001A:
+		case 0x001B:
+		case 0x001C:
+		case 0x001D:
+		case 0x001E:
+		case 0x001F:
+		case 0x0020:
+		case 0x0021:
+		case 0x0022:
+		case 0x0024:
+		case 0x0025:
+		case 0x0026:
+		case 0x0029:
+		case 0x002A:
+		case 0x002D:
+		case 0x002E:
+		case 0x002F:
+		case 0x0030:
+		case 0x0032:
+		case 0x0034:
+		case 0x0035:
+		case 0x0036:
+		case 0x0037:
+		case 0x0038:
+		case 0x0039:
+		case 0x003A:
+		case 0x003B:
+		case 0x003C:
+		case 0x003D:
+		case 0x90ff:
+			rvalue = false;
+			break;
+		case 0x004a:
+			if (test_bit(REL_WHEEL, pDev->relbit)) {
+			  rvalue = false;
+			} else {
+			  rvalue = true;
+			}
+			break;
+		default:
+			rvalue = true;
+			break;
+		}
+	}
+
+	return rvalue;
+}
+
 static struct input_handler evdev_handler = {
 	.event		= evdev_event,
 	.events		= evdev_events,
+	.match          = evdev_match,
 	.connect	= evdev_connect,
 	.disconnect	= evdev_disconnect,
 	.legacy_minors	= true,

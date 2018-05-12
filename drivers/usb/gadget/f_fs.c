@@ -1440,8 +1440,9 @@ static int functionfs_bind(struct ffs_data *ffs, struct usb_composite_dev *cdev)
 
 	ENTER();
 
-	if (WARN_ON(ffs->state != FFS_ACTIVE
-		 || test_and_set_bit(FFS_FL_BOUND, &ffs->flags)))
+	/* Razer Change. the warning occurs on forge, skip it. */
+	if (ffs->state != FFS_ACTIVE
+		 || test_and_set_bit(FFS_FL_BOUND, &ffs->flags))
 		return -EBADFD;
 
 	if (!ffs->first_id || ffs->old_strings_count < ffs->strings_count) {

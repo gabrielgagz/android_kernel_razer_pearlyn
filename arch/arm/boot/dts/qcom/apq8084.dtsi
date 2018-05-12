@@ -5388,6 +5388,8 @@
 
 &gdsc_mdss {
 	clock-names = "core_clk", "lut_clk";
+	proxy-supply = <&pma8084_mvs1>;
+	qcom,proxy-consumer-enable;
 	status = "ok";
 };
 

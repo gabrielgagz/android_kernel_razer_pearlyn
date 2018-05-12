@@ -1413,4 +1413,10 @@ config KRAIT_REGULATOR
 	 line from the PMIC. This supply line is powered by multiple
 	 regulators running in ganged mode inside the PMIC. Enable
 	 this option to support such configurations.
+
+config RAZER_NV
+	bool "razer nv Features"
+	---help---
+	  Enable razer nv functions to read and write important information.
+
 endif

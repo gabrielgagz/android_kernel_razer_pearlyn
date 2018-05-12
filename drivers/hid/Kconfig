@@ -74,6 +74,7 @@ config UHID
 	To compile this driver as a module, choose M here: the
 	module will be called uhid.
 
+
 config HID_GENERIC
 	tristate "Generic HID driver"
 	depends on HID
@@ -565,6 +566,12 @@ config HID_PRIMAX
 	Support for Primax devices that are not fully compliant with the
 	HID standard.
 
+config HID_RAZER
+       	tristate "Support Razer HID Devices"
+	depends on HID
+	---help---
+	Support Razer hid devices
+
 config HID_PS3REMOTE
 	tristate "Sony PS3 BD Remote Control"
 	depends on HID
@@ -573,6 +580,10 @@ config HID_PS3REMOTE
 	Harmony Adapter for PS3, which connect over Bluetooth.
 
 	Support for the 6-axis controllers is provided by HID_SONY.
+
+config HID_RAZER_DONGLE
+	tristate "Razer Dongle HID Driver"
+	depends on HID
 
 config HID_ROCCAT
 	tristate "Roccat device support"

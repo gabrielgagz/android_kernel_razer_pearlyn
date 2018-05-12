@@ -1,0 +1,19 @@
+config RZR_DEVMODE
+	bool "APQ8084"
+	depends on ARCH_APQ8084
+	default n
+
+config RZR_LED
+	bool "APQ8084"
+	depends on ARCH_APQ8084
+	default n
+
+config RZR_FILTER
+	bool "APQ8084"
+	depends on ARCH_APQ8084
+	default n
+
+config RZR_HDMI_EDID
+	bool "APQ8084"
+	depends on ARCH_APQ8084
+	default n

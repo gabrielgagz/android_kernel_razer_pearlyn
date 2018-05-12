@@ -17,4 +17,5 @@ endif
 obj-$(CONFIG_USB_HID)		+= usbhid.o
 obj-$(CONFIG_USB_KBD)		+= usbkbd.o
 obj-$(CONFIG_USB_MOUSE)		+= usbmouse.o
+obj-$(CONFIG_USB_RAZER_DONGLE)	+= hid-razer-ctrl.o hid-razer-proc.o hid-razer-controller.o RzrProtocol.o
 

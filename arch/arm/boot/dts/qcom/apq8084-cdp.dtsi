@@ -442,6 +442,7 @@
 		qcom,vin-sel = <0>;		/* VPH_PWR */
 		qcom,src-sel = <0>;		/* Constant */
 		qcom,master-en = <1>;		/* Enable GPIO */
+		qcom,invert = <1>;
 	};
 
 	mpp@a300 { /* MPP 4 */

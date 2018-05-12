@@ -46,6 +46,9 @@ allowed_warnings = set([
     "af_unix.c:893",
     "nl80211.c:58",
     "jhash.h:137",
+    "vfpmodule.c:221",
+    "vfpmodule.c:512",
+    "vfpmodule.c:651",
  ])
 
 # Capture the name of the object file, can find it.

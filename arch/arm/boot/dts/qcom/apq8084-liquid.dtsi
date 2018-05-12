@@ -25,7 +25,8 @@
 
 &soc {
 	sound {
-		qcom,model = "apq8084-taiko-liquid-snd-card";
+		compatible = "qcom,apq8084-audio-pearlyn";
+		qcom,model = "apq8084-pearlyn-snd-card";
 
 		qcom,audio-routing =
 			"AIF4 VI", "MCLK",
@@ -503,6 +504,7 @@
 		qcom,vin-sel = <2>;		/* VPH_PWR */
 		qcom,src-sel = <0>;		/* Constant */
 		qcom,master-en = <1>;		/* Enable GPIO */
+		qcom,invert = <1>;
 	};
 
 	mpp@a300 { /* MPP 4 */

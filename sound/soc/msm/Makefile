@@ -72,7 +72,7 @@ snd-soc-mpq8092-objs := mpq8092.o
 obj-$(CONFIG_SND_SOC_MPQ8092) += snd-soc-mpq8092.o
 
 #for APQ8084 sound card driver
-snd-soc-apq8084-objs := apq8084.o apq8084-i2s.o
+snd-soc-apq8084-objs := apq8084.o apq8084-i2s.o apq8084-pearlyn.o
 obj-$(CONFIG_SND_SOC_APQ8084) += snd-soc-apq8084.o
 
 #for MSM SAMARIUM sound card driver

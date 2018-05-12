@@ -1053,9 +1053,23 @@ static const struct input_device_id mousedev_ids[] = {
 
 MODULE_DEVICE_TABLE(input, mousedev_ids);
 
+static bool mousedev_match(struct input_handler *pHandler,
+			   struct input_dev *pDev)
+{
+	bool rvalue = false;
+
+	if (0x1532 != pDev->id.vendor) {
+		/* Allow any mouse to work that isn't razer. */
+		rvalue = true;
+	}
+
+	return rvalue;
+}
+
 static struct input_handler mousedev_handler = {
 	.event		= mousedev_event,
 	.connect	= mousedev_connect,
+	.match		= mousedev_match,
 	.disconnect	= mousedev_disconnect,
 	.legacy_minors	= true,
 	.minor		= MOUSEDEV_MINOR_BASE,

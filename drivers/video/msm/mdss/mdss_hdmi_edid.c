@@ -46,6 +46,10 @@
 #define REVISION_OFFSET		0x13
 #define EDID_REVISION_FOUR	0x04
 
+// RAZER CHANGE
+extern void razer_parse_edid(const u8 *edid_buf);
+// RAZER CHANGE
+
 enum data_block_types {
 	RESERVED,
 	AUDIO_DATA_BLOCK,
@@ -1462,6 +1466,10 @@ int hdmi_edid_read(void *input)
 		goto error;
 	}
 	hdmi_edid_extract_vendor_id(edid_buf, vendor_id);
+    
+    // RAZER CHANGE
+    razer_parse_edid(edid_ctrl->edid_buf);
+    // RAZER CHANGE
 
 	/* EDID_CEA_EXTENSION_FLAG[0x7E] - CEC extension byte */
 	num_of_cea_blocks = edid_buf[0x7E];

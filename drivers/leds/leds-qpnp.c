@@ -26,6 +26,7 @@
 #include <linux/delay.h>
 #include <linux/regulator/consumer.h>
 #include <linux/delay.h>
+#include "leds.h"
 
 #define WLED_MOD_EN_REG(base, n)	(base + 0x60 + n*0x10)
 #define WLED_IDAC_DLY_REG(base, n)	(WLED_MOD_EN_REG(base, n) + 0x01)
@@ -494,15 +495,23 @@ struct rgb_config_data {
 
 /**
  *  gpio_config_data - gpio configuration data
+ *  @pwm_cfg - device pwm configuration
  *  @source_sel - source selection
  *  @mode_ctrl - mode control
  *  @vin_ctrl - input control
+ *  @pwm_mode - pwm mode in use
  *  @enable - flag indicating LED on or off
  */
 struct gpio_config_data {
+//FAMP, add start, Bryan Shen, 2014/08/25
+	struct pwm_config_data	*pwm_cfg;
+//FAMP, add end, Bryan Shen, 2014/08/25
 	u8	source_sel;
 	u8	mode_ctrl;
 	u8	vin_ctrl;
+//FAMP, add start, Bryan Shen, 2014/08/25
+	u8 pwm_mode;
+//FAMP, add end, Bryan Shen, 2014/08/25
 	bool	enable;
 };
 
@@ -1008,8 +1017,39 @@ err_reg_enable:
 static int qpnp_gpio_set(struct qpnp_led_data *led)
 {
 	int rc, val;
+//FAMP, add start, Bryan Shen, 2014/08/25
+	int duty_us;
+//FAMP, add end, Bryan Shen, 2014/08/25
 
 	if (led->cdev.brightness) {
+//FAMP, add start, Bryan Shen, 2014/08/25
+		if (led->gpio_cfg->pwm_mode != MANUAL_MODE) {
+			if (!led->gpio_cfg->pwm_cfg->blinking) {
+				led->gpio_cfg->pwm_cfg->mode =
+					led->gpio_cfg->pwm_cfg->default_mode;
+				led->gpio_cfg->pwm_mode =
+					led->gpio_cfg->pwm_cfg->default_mode;
+			}
+		}
+		if (led->gpio_cfg->pwm_mode == PWM_MODE) {
+			pwm_disable(led->gpio_cfg->pwm_cfg->pwm_dev);
+			duty_us = (led->gpio_cfg->pwm_cfg->pwm_period_us *
+					led->cdev.brightness) / LED_FULL;
+			/*config pwm for brightness scaling*/
+			rc = pwm_config_us(led->gpio_cfg->pwm_cfg->pwm_dev,
+					duty_us,
+					led->gpio_cfg->pwm_cfg->pwm_period_us);
+			if (rc < 0) {
+				dev_err(&led->spmi_dev->dev, "Failed to " \
+					"configure pwm for new values, duty_us=%d, pwm_period_us=%d\n", duty_us, led->gpio_cfg->pwm_cfg->pwm_period_us);
+				goto err_gpio_reg_write;
+			}
+		}
+
+		if (led->gpio_cfg->pwm_mode != MANUAL_MODE)
+			pwm_enable(led->gpio_cfg->pwm_cfg->pwm_dev);
+//FAMP, add end, Bryan Shen, 2014/08/25
+
 		val = (led->gpio_cfg->source_sel & LED_GPIO_SRC_MASK) |
 			(led->gpio_cfg->mode_ctrl & LED_GPIO_MODE_CTRL_MASK);
 
@@ -1035,6 +1075,16 @@ static int qpnp_gpio_set(struct qpnp_led_data *led)
 
 		led->gpio_cfg->enable = true;
 	} else {
+//FAMP, add start, Bryan Shen, 2014/08/25
+		if (led->gpio_cfg->pwm_mode != MANUAL_MODE) {
+			led->gpio_cfg->pwm_cfg->mode =
+				led->gpio_cfg->pwm_cfg->default_mode;
+			led->gpio_cfg->pwm_mode =
+				led->gpio_cfg->pwm_cfg->default_mode;
+			pwm_disable(led->gpio_cfg->pwm_cfg->pwm_dev);
+		}
+//FAMP, add end, Bryan Shen, 2014/08/25
+
 		rc = qpnp_led_masked_write(led,
 				LED_GPIO_MODE_CTRL(led->base),
 				LED_GPIO_MODE_MASK,
@@ -1057,6 +1107,11 @@ static int qpnp_gpio_set(struct qpnp_led_data *led)
 
 		led->gpio_cfg->enable = false;
 	}
+
+//FAMP, add start, Bryan Shen, 2014/08/25
+	if (led->gpio_cfg->pwm_mode != MANUAL_MODE)
+		led->gpio_cfg->pwm_cfg->blinking = false;
+//FAMP, add end, Bryan Shen, 2014/08/25
 
 	qpnp_dump_regs(led, gpio_debug_regs, ARRAY_SIZE(gpio_debug_regs));
 
@@ -2465,6 +2520,25 @@ static ssize_t blink_store(struct device *dev,
 	return count;
 }
 
+static ssize_t rzr_user_store(struct device *dev,
+	struct device_attribute *attr,
+	const char *buf, size_t size)
+{
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	unsigned long state;
+	ssize_t ret = -EINVAL;
+
+	ret = kstrtoul(buf, 10, &state);
+	if (ret)
+		return ret;
+
+	if (state == LED_OFF)
+		led_trigger_remove(led_cdev);
+	__led_set_brightness(led_cdev, state);
+
+	return size;
+}
+
 static DEVICE_ATTR(led_mode, 0664, NULL, led_mode_store);
 static DEVICE_ATTR(strobe, 0664, NULL, led_strobe_type_store);
 static DEVICE_ATTR(pwm_us, 0664, NULL, pwm_us_store);
@@ -2475,6 +2549,7 @@ static DEVICE_ATTR(ramp_step_ms, 0664, NULL, ramp_step_ms_store);
 static DEVICE_ATTR(lut_flags, 0664, NULL, lut_flags_store);
 static DEVICE_ATTR(duty_pcts, 0664, NULL, duty_pcts_store);
 static DEVICE_ATTR(blink, 0664, NULL, blink_store);
+static DEVICE_ATTR(user, 0600, NULL, rzr_user_store);
 
 static struct attribute *led_attrs[] = {
 	&dev_attr_led_mode.attr,
@@ -2517,6 +2592,16 @@ static const struct attribute_group lpg_attr_group = {
 static const struct attribute_group blink_attr_group = {
 	.attrs = blink_attrs,
 };
+
+static struct attribute *rzr_user_attrs[] = {
+	&dev_attr_user.attr,
+	NULL,
+};
+
+static const struct attribute_group rzr_user_attr_group = {
+	.attrs = rzr_user_attrs,
+};
+
 
 static int qpnp_flash_init(struct qpnp_led_data *led)
 {
@@ -2779,6 +2864,16 @@ static int qpnp_gpio_init(struct qpnp_led_data *led)
 		dev_err(&led->spmi_dev->dev,
 			"Failed to write led vin control reg\n");
 		return rc;
+	}
+
+	if (led->gpio_cfg->pwm_mode != MANUAL_MODE) {
+		rc = qpnp_pwm_init(led->gpio_cfg->pwm_cfg, led->spmi_dev,
+					led->cdev.name);
+		if (rc) {
+			dev_err(&led->spmi_dev->dev,
+				"Failed to initialize pwm\n");
+			return rc;
+		}
 	}
 
 	return 0;
@@ -3537,6 +3632,10 @@ static int qpnp_get_config_gpio(struct qpnp_led_data *led,
 {
 	int rc;
 	u32 val;
+//FAMP, add start, Bryan Shen, 2014/08/25
+	u8 led_mode;
+	const char *mode;
+//FAMP, add end, Bryan Shen, 2014/08/25
 
 	led->gpio_cfg = devm_kzalloc(&led->spmi_dev->dev,
 			sizeof(struct gpio_config_data), GFP_KERNEL);
@@ -3566,11 +3665,45 @@ static int qpnp_get_config_gpio(struct qpnp_led_data *led,
 	else if (rc != -EINVAL)
 		goto err_config_gpio;
 
+//FAMP, add start, Bryan Shen, 2014/08/28
+	rc = of_property_read_string(node, "qcom,mode", &mode);
+	if (!rc) {
+		led_mode = qpnp_led_get_mode(mode);
+		led->gpio_cfg->pwm_mode = led_mode;
+		if (led_mode == MANUAL_MODE)
+			return MANUAL_MODE;
+		else if (led_mode == -EINVAL) {
+			dev_err(&led->spmi_dev->dev, "Selected mode not " \
+				"supported for gpio.\n");
+			rc = -EINVAL;
+			goto err_config_gpio;
+		}
+		led->gpio_cfg->pwm_cfg = devm_kzalloc(&led->spmi_dev->dev,
+					sizeof(struct pwm_config_data),
+					GFP_KERNEL);
+		if (!led->gpio_cfg->pwm_cfg) {
+			dev_err(&led->spmi_dev->dev,
+				"Unable to allocate memory\n");
+			rc = -ENOMEM;
+			goto err_config_gpio;
+		}
+		led->gpio_cfg->pwm_cfg->mode = led_mode;
+		led->gpio_cfg->pwm_cfg->default_mode = led_mode;
+	} else
+		return rc;
+
+	rc = qpnp_get_config_pwm(led->gpio_cfg->pwm_cfg, led->spmi_dev, node);
+	if (rc < 0)
+		goto err_config_gpio;
+//FAMP, add end, Bryan Shen, 2014/08/25
+
 	return 0;
 
 err_config_gpio:
 	return rc;
 }
+
+extern void razer_led_setdev(struct led_classdev *pDev);
 
 static int qpnp_leds_probe(struct spmi_device *spmi)
 {
@@ -3723,6 +3856,14 @@ static int qpnp_leds_probe(struct spmi_device *spmi)
 			goto fail_id_check;
 		}
 
+		if (0 == strncmp(led->cdev.name, "pearlyn", 7)) {
+             		razer_led_setdev(&led->cdev);
+			rc = sysfs_create_group(&led->cdev.dev->kobj,
+				&rzr_user_attr_group);
+			if (rc)
+				goto fail_id_check;
+		}
+
 		if (led->id == QPNP_ID_FLASH1_LED0 ||
 			led->id == QPNP_ID_FLASH1_LED1) {
 			rc = sysfs_create_group(&led->cdev.dev->kobj,
@@ -3783,6 +3924,34 @@ static int qpnp_leds_probe(struct spmi_device *spmi)
 					goto fail_id_check;
 			}
 		}
+//FAMP, add start, Bryan Shen, 2014/08/25
+		else if (led->id == QPNP_ID_LED_GPIO) {
+			if (!led->gpio_cfg->pwm_cfg)
+				break;
+			if (led->gpio_cfg->pwm_cfg->mode == PWM_MODE) {
+				rc = sysfs_create_group(&led->cdev.dev->kobj,
+					&pwm_attr_group);
+				if (rc)
+					goto fail_id_check;
+			}
+			if (led->gpio_cfg->pwm_cfg->use_blink) {
+				rc = sysfs_create_group(&led->cdev.dev->kobj,
+					&blink_attr_group);
+				if (rc)
+					goto fail_id_check;
+
+				rc = sysfs_create_group(&led->cdev.dev->kobj,
+					&lpg_attr_group);
+				if (rc)
+					goto fail_id_check;
+			} else if (led->gpio_cfg->pwm_cfg->mode == LPG_MODE) {
+				rc = sysfs_create_group(&led->cdev.dev->kobj,
+					&lpg_attr_group);
+				if (rc)
+					goto fail_id_check;
+			}
+		}
+//FAMP, add end, Bryan Shen, 2014/08/25
 
 		/* configure default state */
 		if (led->default_on) {
@@ -3816,6 +3985,11 @@ static int qpnp_leds_remove(struct spmi_device *spmi)
 		cancel_work_sync(&led_array[i].work);
 		mutex_destroy(&led_array[i].lock);
 		led_classdev_unregister(&led_array[i].cdev);
+		if (0 == strncmp(led_array[i].cdev.name, "pearlyn", 7)) {
+		        razer_led_setdev(NULL);
+			sysfs_remove_group(&led_array[i].cdev.dev->kobj,
+							&rzr_user_attr_group);
+		}
 		switch (led_array[i].id) {
 		case QPNP_ID_WLED:
 			break;
@@ -3864,6 +4038,26 @@ static int qpnp_leds_remove(struct spmi_device *spmi)
 			if (led_array[i].mpp_cfg->mpp_reg)
 				regulator_put(led_array[i].mpp_cfg->mpp_reg);
 			break;
+
+//FAMP, add start, Bryan Shen, 2014/08/25
+		case QPNP_ID_LED_GPIO:
+			if (!led_array[i].gpio_cfg->pwm_cfg)
+				break;
+			if (led_array[i].gpio_cfg->pwm_cfg->mode == PWM_MODE)
+				sysfs_remove_group(&led_array[i].cdev.dev->\
+					kobj, &pwm_attr_group);
+			if (led_array[i].gpio_cfg->pwm_cfg->use_blink) {
+				sysfs_remove_group(&led_array[i].cdev.dev->\
+					kobj, &blink_attr_group);
+				sysfs_remove_group(&led_array[i].cdev.dev->\
+					kobj, &lpg_attr_group);
+			} else if (led_array[i].gpio_cfg->pwm_cfg->mode\
+					== LPG_MODE)
+				sysfs_remove_group(&led_array[i].cdev.dev->\
+					kobj, &lpg_attr_group);
+			break;
+//FAMP, add end, Bryan Shen, 2014/08/25
+
 		default:
 			dev_err(&led_array[i].spmi_dev->dev,
 					"Invalid LED(%d)\n",
@@ -3908,4 +4102,3 @@ module_exit(qpnp_led_exit);
 MODULE_DESCRIPTION("QPNP LEDs driver");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("leds:leds-qpnp");
-

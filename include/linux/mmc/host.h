@@ -295,7 +295,11 @@ struct mmc_host {
 
 	u32			caps2;		/* More host capabilities */
 
-#define MMC_CAP2_BOOTPART_NOACC	(1 << 0)	/* Boot partition no access */
+#ifdef CONFIG_RAZER_NV
+#define MMC_CAP2_BOOTPART_NOACC	(0)             /* Boot partition access */
+#else
+#define MMC_CAP2_BOOTPART_NOACC	(1 << 0)        /* Boot partition no access */
+#endif
 #define MMC_CAP2_CACHE_CTRL	(1 << 1)	/* Allow cache control */
 #define MMC_CAP2_POWEROFF_NOTIFY (1 << 2)	/* Notify poweroff supported */
 #define MMC_CAP2_NO_MULTI_READ	(1 << 3)	/* Multiblock reads don't work */

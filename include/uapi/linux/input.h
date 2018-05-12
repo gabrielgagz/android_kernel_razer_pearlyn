@@ -912,6 +912,10 @@ struct input_keymap_entry {
 #define LED_MISC		0x08
 #define LED_MAIL		0x09
 #define LED_CHARGING		0x0a
+#define LED_PLAYER_1		0x0b
+#define LED_PLAYER_2		0x0c
+#define LED_PLAYER_3		0x0d
+#define LED_PLAYER_4		0x0e
 #define LED_MAX			0x0f
 #define LED_CNT			(LED_MAX+1)
 
