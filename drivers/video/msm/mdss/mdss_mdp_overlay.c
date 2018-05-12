@@ -630,15 +630,6 @@ int mdss_mdp_overlay_pipe_setup(struct msm_fb_data_type *mfd,
 	if (ret)
 		return ret;
 
-	pipe = mdss_mdp_get_staged_pipe(mdp5_data->ctl, mixer_mux,
-		req->z_order, left_blend_pipe != NULL);
-	if (pipe && pipe->ndx != req->id) {
-		pr_debug("replacing pnum=%d at stage=%d mux=%d id:0x%x %s\n",
-			pipe->num, req->z_order, mixer_mux, req->id,
-			left_blend_pipe ? "right blend" : "left blend");
-		mdss_mdp_mixer_pipe_unstage(pipe, pipe->mixer_left);
-	}
-
 	mixer = mdss_mdp_mixer_get(mdp5_data->ctl, mixer_mux);
 	if (!mixer) {
 		pr_err("unable to get mixer\n");
@@ -755,6 +746,12 @@ int mdss_mdp_overlay_pipe_setup(struct msm_fb_data_type *mfd,
 		pipe->is_right_blend = false;
 	}
 
+	req->priority = pipe->priority;
+	if (!pipe->dirty && !memcmp(req, &pipe->req_data, sizeof(*req))) {
+		pr_debug("skipping pipe_reconfiguration\n");
+		goto skip_reconfigure;
+	}
+
 	pipe->flags = req->flags;
 	if (bwc_enabled  &&  !mdp5_data->mdata->has_bwc) {
 		pr_err("BWC is not supported in MDP version %x\n",
@@ -837,11 +834,8 @@ int mdss_mdp_overlay_pipe_setup(struct msm_fb_data_type *mfd,
 	}
 	pipe->bg_color = req->bg_color;
 
-	req->id = pipe->ndx;
-	req->priority = pipe->priority;
-	pipe->req_data = *req;
-
 	mdss_mdp_pipe_sspp_term(pipe);
+
 	if (pipe->flags & MDP_OVERLAY_PP_CFG_EN) {
 		memcpy(&pipe->pp_cfg, &req->overlay_pp_cfg,
 					sizeof(struct mdp_overlay_pp_params));
@@ -931,16 +925,20 @@ int mdss_mdp_overlay_pipe_setup(struct msm_fb_data_type *mfd,
 		goto exit_fail;
 	}
 
-	pipe->params_changed++;
+	req->id = pipe->ndx;
 
 	req->vert_deci = pipe->vert_deci;
 
+	pipe->req_data = *req;
+	pipe->dirty = false;
+
+	pipe->params_changed++;
+skip_reconfigure:
 	*ppipe = pipe;
 
 	mdss_mdp_pipe_unmap(pipe);
 
 	return ret;
-
 exit_fail:
 	mdss_mdp_pipe_unmap(pipe);
 
@@ -957,6 +955,7 @@ exit_fail:
 		pr_debug("freeing allocations for pipe %d\n", pipe->num);
 		mdss_mdp_smp_unreserve(pipe);
 		pipe->params_changed = 0;
+		pipe->dirty = true;
 	}
 	mutex_unlock(&mdp5_data->list_lock);
 	return ret;
@@ -1255,6 +1254,13 @@ static int __overlay_queue_pipes(struct msm_fb_data_type *mfd)
 
 	list_for_each_entry(pipe, &mdp5_data->pipes_used, list) {
 		struct mdss_mdp_data *buf;
+
+		if (pipe->dirty) {
+			pr_err("fb%d: pipe %d dirty! skipping configuration\n",
+					mfd->index, pipe->num);
+			continue;
+		}
+
 		/*
 		 * When secure display is enabled, if there is a non secure
 		 * display pipe, skip that
@@ -1324,6 +1330,7 @@ static int __overlay_queue_pipes(struct msm_fb_data_type *mfd)
 					pipe->num);
 			mdss_mdp_mixer_pipe_unstage(pipe, pipe->mixer_left);
 			mdss_mdp_mixer_pipe_unstage(pipe, pipe->mixer_right);
+			pipe->dirty = true;
 		}
 	}
 
@@ -2785,6 +2792,56 @@ static int mdss_fb_get_metadata(struct msm_fb_data_type *mfd,
 	return ret;
 }
 
+static int __mdss_mdp_clean_dirty_pipes(struct msm_fb_data_type *mfd)
+{
+	struct mdss_overlay_private *mdp5_data = mfd_to_mdp5_data(mfd);
+	struct mdss_mdp_pipe *pipe;
+	int unset_ndx = 0;
+
+	mutex_lock(&mdp5_data->list_lock);
+	list_for_each_entry(pipe, &mdp5_data->pipes_used, list) {
+		if (pipe->dirty)
+			unset_ndx |= pipe->ndx;
+	}
+	mutex_unlock(&mdp5_data->list_lock);
+	if (unset_ndx)
+		mdss_mdp_overlay_release(mfd, unset_ndx);
+
+	return unset_ndx;
+}
+
+static int mdss_mdp_overlay_precommit(struct msm_fb_data_type *mfd)
+{
+	struct mdss_overlay_private *mdp5_data;
+	int ret;
+
+	if (!mfd)
+		return -ENODEV;
+
+	mdp5_data = mfd_to_mdp5_data(mfd);
+	if (!mdp5_data)
+		return -ENODEV;
+
+	ret = mutex_lock_interruptible(&mdp5_data->ov_lock);
+	if (ret)
+		return ret;
+
+	/*
+	 * we can assume that any pipes that are still dirty at this point are
+	 * not properly tracked by user land. This could be for any reason,
+	 * mark them for cleanup at this point.
+	 */
+	ret = __mdss_mdp_clean_dirty_pipes(mfd);
+	if (ret) {
+		pr_warn("fb%d: dirty pipes remaining %x\n",
+				mfd->index, ret);
+		ret = -EPIPE;
+	}
+	mutex_unlock(&mdp5_data->ov_lock);
+
+	return ret;
+}
+
 /*
  * This routine serves two purposes.
  * 1. Propagate overlay_id returned from sorted list to original list
@@ -3706,6 +3763,7 @@ int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd)
 	mdp5_interface->ioctl_handler = mdss_mdp_overlay_ioctl_handler;
 	mdp5_interface->panel_register_done = mdss_panel_register_done;
 	mdp5_interface->kickoff_fnc = mdss_mdp_overlay_kickoff;
+	mdp5_interface->pre_commit_fnc = mdss_mdp_overlay_precommit;
 	mdp5_interface->get_sync_fnc = mdss_mdp_rotator_sync_pt_get;
 	mdp5_interface->splash_init_fnc = mdss_mdp_splash_init;
 
