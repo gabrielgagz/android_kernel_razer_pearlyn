@@ -23,7 +23,15 @@
 #include <soc/qcom/scm.h>
 
 
+static struct rb_root secure_root;
 DEFINE_MUTEX(secure_buffer_mutex);
+
+struct secure_meta {
+	struct rb_node node;
+	struct sg_table *table;
+	struct kref ref;
+	enum cp_mem_usage usage;
+};
 
 struct cp2_mem_chunks {
 	unsigned int *chunk_list;
@@ -41,20 +49,71 @@ struct cp2_lock_req {
 #define V2_CHUNK_SIZE		SZ_1M
 #define FEATURE_ID_CP 12
 
-static int secure_buffer_change_chunk(u32 chunks,
-				u32 nchunks,
-				u32 chunk_size,
+static void secure_meta_add(struct secure_meta *meta)
+{
+	struct rb_root *root = &secure_root;
+	struct rb_node **p = &root->rb_node;
+	struct rb_node *parent = NULL;
+	struct secure_meta *entry;
+
+	while (*p) {
+		parent = *p;
+		entry = rb_entry(parent, struct secure_meta, node);
+
+		if (meta->table < entry->table) {
+			p = &(*p)->rb_left;
+		} else if (meta->table > entry->table) {
+			p = &(*p)->rb_right;
+		} else {
+			pr_err("%s: table %p already exists\n", __func__,
+				entry->table);
+			BUG();
+		}
+	}
+
+	rb_link_node(&meta->node, parent, p);
+	rb_insert_color(&meta->node, root);
+}
+
+
+static struct secure_meta *secure_meta_lookup(struct sg_table *table)
+{
+	struct rb_root *root = &secure_root;
+	struct rb_node **p = &root->rb_node;
+	struct rb_node *parent = NULL;
+	struct secure_meta *entry = NULL;
+
+	while (*p) {
+		parent = *p;
+		entry = rb_entry(parent, struct secure_meta, node);
+
+		if (table < entry->table)
+			p = &(*p)->rb_left;
+		else if (table > entry->table)
+			p = &(*p)->rb_right;
+		else
+			return entry;
+	}
+
+	return NULL;
+}
+
+
+static int secure_buffer_change_chunk(unsigned long chunks,
+				unsigned int nchunks,
+				unsigned int chunk_size,
+				enum cp_mem_usage usage,
 				int lock)
 {
 	struct cp2_lock_req request;
 	u32 resp;
 
+	request.mem_usage = usage;
+	request.lock = lock;
+
 	request.chunks.chunk_list = (unsigned int *)chunks;
 	request.chunks.chunk_list_size = nchunks;
 	request.chunks.chunk_size = chunk_size;
-	/* Usage is now always 0 */
-	request.mem_usage = 0;
-	request.lock = lock;
 
 	kmap_flush_unused();
 	kmap_atomic_flush_unused();
@@ -65,7 +124,9 @@ static int secure_buffer_change_chunk(u32 chunks,
 
 
 
-static int secure_buffer_change_table(struct sg_table *table, int lock)
+static int secure_buffer_change_table(struct sg_table *table,
+				enum cp_mem_usage usage,
+				int lock)
 {
 	int i;
 	int ret = -EINVAL;
@@ -111,18 +172,7 @@ static int secure_buffer_change_table(struct sg_table *table, int lock)
 		dmac_flush_range(chunk_list, chunk_list + chunk_list_len);
 
 		ret = secure_buffer_change_chunk(virt_to_phys(chunk_list),
-				nchunks, V2_CHUNK_SIZE, lock);
-
-		if (!ret) {
-			/*
-			 * Set or clear the private page flag to communicate the
-			 * status of the chunk to other entities
-			 */
-			if (lock)
-				SetPagePrivate(sg_page(sg));
-			else
-				ClearPagePrivate(sg_page(sg));
-		}
+				nchunks, V2_CHUNK_SIZE, usage, lock);
 
 		kfree(chunk_list);
 	}
@@ -130,24 +180,69 @@ static int secure_buffer_change_table(struct sg_table *table, int lock)
 	return ret;
 }
 
-int msm_ion_secure_table(struct sg_table *table)
+int msm_ion_secure_table(struct sg_table *table, enum cp_mem_usage usage,
+			int flags)
 {
+	struct secure_meta *meta;
 	int ret;
 
 	mutex_lock(&secure_buffer_mutex);
-	ret = secure_buffer_change_table(table, 1);
+	meta = secure_meta_lookup(table);
+
+	if (meta) {
+		kref_get(&meta->ref);
+		ret = 0;
+	} else {
+		meta = kzalloc(sizeof(*meta), GFP_KERNEL);
+
+		if (!meta) {
+			ret = -ENOMEM;
+			goto out;
+		}
+
+		meta->table = table;
+		meta->usage = usage;
+		kref_init(&meta->ref);
+
+		ret = secure_buffer_change_table(table, usage, 1);
+		if (!ret)
+			secure_meta_add(meta);
+		else
+			kfree(meta);
+	}
+out:
 	mutex_unlock(&secure_buffer_mutex);
 
 	return ret;
 
 }
 
+static void msm_secure_buffer_release(struct kref *kref)
+{
+	struct secure_meta *meta = container_of(kref, struct secure_meta,
+						ref);
+
+	rb_erase(&meta->node, &secure_root);
+	secure_buffer_change_table(meta->table, meta->usage, 0);
+	kfree(meta);
+}
+
 int msm_ion_unsecure_table(struct sg_table *table)
 {
-	int ret;
+	struct secure_meta *meta;
+	int ret = 0;
 
 	mutex_lock(&secure_buffer_mutex);
-	ret = secure_buffer_change_table(table, 0);
+	meta = secure_meta_lookup(table);
+
+	if (!meta) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	kref_put(&meta->ref, msm_secure_buffer_release);
+
+out:
 	mutex_unlock(&secure_buffer_mutex);
 	return ret;
 
