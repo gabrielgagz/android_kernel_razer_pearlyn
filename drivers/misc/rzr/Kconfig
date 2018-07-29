@@ -1,19 +1,19 @@
 config RZR_DEVMODE
-	bool "APQ8084"
+	bool "Razer 'Device Mode' for USB Port"
 	depends on ARCH_APQ8084
 	default n
 
 config RZR_LED
-	bool "APQ8084"
+	bool "Razer Led Control"
 	depends on ARCH_APQ8084
 	default n
 
 config RZR_FILTER
-	bool "APQ8084"
+	bool "Razer Filter for Serval Controller"
 	depends on ARCH_APQ8084
 	default n
 
 config RZR_HDMI_EDID
-	bool "APQ8084"
+	bool "Razer HDMI EDID"
 	depends on ARCH_APQ8084
 	default n
