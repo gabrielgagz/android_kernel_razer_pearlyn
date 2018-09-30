@@ -1184,7 +1184,6 @@ static void hdmi_edid_get_display_mode(struct hdmi_edid_ctrl *edid_ctrl,
 	const u8 *svd = NULL;
 	u32 has60hz_mode = false;
 	u32 has50hz_mode = false;
-	bool read_block0_res = false;
 	struct hdmi_edid_sink_data *sink_data = NULL;
 
 	if (!edid_ctrl || !data_buf) {
@@ -1199,9 +1198,9 @@ static void hdmi_edid_get_display_mode(struct hdmi_edid_ctrl *edid_ctrl,
 			VIDEO_DATA_BLOCK, &len) : NULL;
 
 	if (num_of_cea_blocks && (len == 0 || len > MAX_DATA_BLOCK_SIZE)) {
-		DEV_DBG("%s: fall back to block 0 res\n", __func__);
-		svd = NULL;
-		read_block0_res = true;
+		DEV_DBG("%s: No/Invalid Video Data Block\n",
+			__func__);
+		return;
 	}
 
 	sink_data = &edid_ctrl->sink_data;
@@ -1245,7 +1244,7 @@ static void hdmi_edid_get_display_mode(struct hdmi_edid_ctrl *edid_ctrl,
 			if (video_format == HDMI_VFRMT_640x480p60_4_3)
 				has480p = true;
 		}
-	} else if (!num_of_cea_blocks || read_block0_res) {
+	} else if (!num_of_cea_blocks) {
 		/* Detailed timing descriptors */
 		u32 desc_offset = 0;
 		/*
